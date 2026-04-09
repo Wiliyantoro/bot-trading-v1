@@ -30,3 +30,8 @@ BE_OFFSET = 100     # 🔥 aman dari noise
 # ==============================
 TRAILING_START = 1200   # 🔥 mulai setelah profit cukup
 TRAILING_STEP = 300     # 🔥 tidak terlalu rapat
+
+# ==============================
+# TRADING MODE
+# ==============================
+TRADING_MODE = "MANUAL"   # "AUTO" atau "MANUAL"
