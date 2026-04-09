@@ -1,4 +1,5 @@
 import MetaTrader5 as mt5
+import time
 from config.settings import *
 from utils.logger import log
 from utils.price_formatter import normalize_price
@@ -26,6 +27,77 @@ def get_position(symbol):
 # =========================
 def is_manual_position(position):
     return position.magic != MAGIC_NUMBER
+
+
+# =========================
+# 🔥 FAST CUT LOSS (BARU)
+# =========================
+def apply_fast_cut_loss(position):
+    symbol_info = mt5.symbol_info(position.symbol)
+    tick = mt5.symbol_info_tick(position.symbol)
+
+    if symbol_info is None or tick is None:
+        return
+
+    point = symbol_info.point
+    digits = symbol_info.digits
+
+    # ⏱️ umur posisi
+    current_time = time.time()
+    position_time = position.time
+    age = current_time - position_time
+
+    # hanya aktif di awal posisi
+    if age < 5 or age > 15:
+        return
+
+    price_open = position.price_open
+    sl = position.sl
+
+    # =========================
+    # BUY
+    # =========================
+    if position.type == mt5.POSITION_TYPE_BUY:
+        loss = tick.bid - price_open
+
+        if loss >= 0:
+            return
+
+        new_sl = tick.bid - 0.2  # 🔥 bisa tuning
+
+        # jangan turunin SL
+        if sl != 0.0 and new_sl <= sl:
+            return
+
+    # =========================
+    # SELL
+    # =========================
+    elif position.type == mt5.POSITION_TYPE_SELL:
+        loss = price_open - tick.ask
+
+        if loss >= 0:
+            return
+
+        new_sl = tick.ask + 0.2
+
+        if sl != 0.0 and new_sl >= sl:
+            return
+
+    else:
+        return
+
+    new_sl = normalize_price(new_sl, digits)
+
+    request = {
+        "action": mt5.TRADE_ACTION_SLTP,
+        "position": position.ticket,
+        "sl": new_sl,
+        "tp": position.tp,
+    }
+
+    result = mt5.order_send(request)
+
+    log(f"⚡ FAST CUT LOSS | SL -> {new_sl:.3f} | Retcode: {result.retcode}")
 
 
 # =========================
@@ -92,9 +164,6 @@ def set_sl_tp(position):
     else:
         return
 
-    # =========================
-    # SAFETY CHECK
-    # =========================
     if sl is None:
         return
 
@@ -103,9 +172,7 @@ def set_sl_tp(position):
     if tp != 0.0:
         tp = normalize_price(tp, symbol_info.digits)
 
-    # =========================
-    # 🔥 ANTI TURUN SL (SUPER PENTING)
-    # =========================
+    # 🔥 ANTI TURUN SL
     if position.type == mt5.POSITION_TYPE_BUY and position.sl != 0.0:
         if sl <= position.sl:
             log("⛔ SL tidak boleh turun (BUY), skip")
@@ -116,9 +183,7 @@ def set_sl_tp(position):
             log("⛔ SL tidak boleh naik (SELL), skip")
             return
 
-    # =========================
-    # 🔥 ANTI SPAM (NO CHANGES)
-    # =========================
+    # 🔥 ANTI SPAM
     current_sl = position.sl if position.sl else 0.0
     current_tp = position.tp if position.tp else 0.0
 
@@ -127,9 +192,6 @@ def set_sl_tp(position):
             log("⚠️ SL/TP sama, skip update")
             return
 
-    # =========================
-    # SEND REQUEST
-    # =========================
     request = {
         "action": mt5.TRADE_ACTION_SLTP,
         "position": ticket,
@@ -139,9 +201,6 @@ def set_sl_tp(position):
 
     result = mt5.order_send(request)
 
-    # =========================
-    # LOG RESULT
-    # =========================
     if result.retcode == mt5.TRADE_RETCODE_DONE:
         if is_manual:
             log(f"🧠 Manual SL SET | SL: {sl:.3f}")
@@ -177,9 +236,6 @@ def close_opposite_pending(symbol, position_type):
         if order.symbol != symbol:
             continue
 
-        # =========================
-        # BUY POSITION
-        # =========================
         if position_type == mt5.POSITION_TYPE_BUY:
             if order.type in [
                 mt5.ORDER_TYPE_SELL_STOP,
@@ -192,9 +248,6 @@ def close_opposite_pending(symbol, position_type):
 
                 log(f"❌ Hapus SELL pending: {order.ticket} | Retcode: {result.retcode}")
 
-        # =========================
-        # SELL POSITION
-        # =========================
         elif position_type == mt5.POSITION_TYPE_SELL:
             if order.type in [
                 mt5.ORDER_TYPE_BUY_STOP,
