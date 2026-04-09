@@ -143,10 +143,13 @@ def set_sl_tp(position):
         log(f"❌ Gagal set SL/TP | Retcode: {result.retcode}")
 
 
-# =========================
-# CEK SUDAH ADA SL TP
-# =========================
+
 def is_sl_tp_set(position):
+    # untuk manual → cukup SL saja
+    if is_manual_position(position):
+        return position.sl != 0.0
+
+    # untuk bot → SL + TP
     return position.sl != 0.0 and position.tp != 0.0
 
 
