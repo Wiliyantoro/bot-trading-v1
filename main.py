@@ -1,5 +1,6 @@
 import time
 import MetaTrader5 as mt5
+
 from strategy.market_mode import get_market_mode
 from config.settings import *
 from core.mt5_connector import connect, shutdown
@@ -17,6 +18,7 @@ from core.position_manager import (
     set_sl_tp,
     close_opposite_pending,
     is_sl_tp_set,
+    is_manual_position,
 )
 from utils.logger import log
 from utils.price_formatter import normalize_price
@@ -29,7 +31,6 @@ from risk.trailing import apply_trailing
 last_position_ticket = None
 last_trade_time = 0
 COOLDOWN_SECONDS = 25
-
 
 
 def run_bot():
@@ -62,23 +63,36 @@ def run_bot():
         log(f"📊 Bid: {bid:.3f} | Ask: {ask:.3f} | Spread: {spread:.3f}")
 
         # =========================
-        # ADA POSISI
+        # ADA POSISI (BOT + MANUAL)
         # =========================
         if has_position(SYMBOL):
-            log("📌 Posisi aktif")
-
             position = get_position(SYMBOL)
 
-            if position and position.ticket != last_position_ticket:
+            if position is None:
+                time.sleep(2)
+                continue
+
+            # 🔥 DETEKSI MODE
+            if is_manual_position(position):
+                log("🧠 MODE: MANUAL TRADE")
+            else:
+                log("🤖 MODE: BOT TRADE")
+
+            # 🔥 HANDLE POSISI BARU
+            if position.ticket != last_position_ticket:
+                log("🆕 Posisi baru terdeteksi")
                 time.sleep(1)
+
                 close_opposite_pending(SYMBOL, position.type)
 
                 last_position_ticket = position.ticket
                 last_trade_time = time.time()
 
+            # 🔥 SET SL (manual / bot)
             if not is_sl_tp_set(position):
                 set_sl_tp(position)
 
+            # 🔥 BE + TRAILING (SEMUA POSISI)
             apply_break_even(position)
             apply_trailing(position)
 
@@ -90,21 +104,25 @@ def run_bot():
         # =========================
         current_time = time.time()
 
+        # cooldown
         if current_time - last_trade_time < COOLDOWN_SECONDS:
             log("⏳ Cooldown aktif")
             time.sleep(2)
             continue
 
+        # spread filter keras
         if spread > 0.5:
-            log("⚠️ Spread lebar")
+            log("⚠️ Spread terlalu lebar")
             time.sleep(2)
             continue
 
+        # spread normal filter
         if spread > MAX_SPREAD:
-            log("⚠️ Spread besar")
+            log("⚠️ Spread terlalu besar")
             time.sleep(2)
             continue
 
+        # pending check
         if has_pending_orders(SYMBOL):
             log("⏳ Pending masih ada")
             time.sleep(2)
@@ -114,18 +132,19 @@ def run_bot():
         # DETECT MODE
         # =========================
         mode = get_market_mode(SYMBOL)
-        log(f"📊 Mode: {mode}")
+        log(f"📊 Market Mode: {mode}")
 
-        distance = max(spread * MULTIPLIER, 0.35)
+        # 🔥 DISTANCE (ANTI DEKAT)
+        distance = max(spread * MULTIPLIER, 0.4)
 
         # =========================
-        # BREAKOUT
+        # BREAKOUT MODE
         # =========================
         if mode == "VOLATILE":
             buy_price = normalize_price(ask + distance, symbol_info.digits)
             sell_price = normalize_price(bid - distance, symbol_info.digits)
 
-            log("🚀 BREAKOUT")
+            log("🚀 MODE: BREAKOUT")
             log(f"🎯 Buy Stop : {buy_price:.3f}")
             log(f"🎯 Sell Stop: {sell_price:.3f}")
 
@@ -133,21 +152,24 @@ def run_bot():
             place_sell_stop(SYMBOL, sell_price)
 
         # =========================
-        # REVERSAL
+        # REVERSAL MODE
         # =========================
         elif mode == "SIDEWAYS":
             buy_price = normalize_price(bid - distance, symbol_info.digits)
             sell_price = normalize_price(ask + distance, symbol_info.digits)
 
-            log("🔄 REVERSAL")
+            log("🔄 MODE: REVERSAL")
             log(f"🎯 Buy Limit : {buy_price:.3f}")
             log(f"🎯 Sell Limit: {sell_price:.3f}")
 
             place_buy_limit(SYMBOL, buy_price)
             place_sell_limit(SYMBOL, sell_price)
 
+        # =========================
+        # NORMAL MODE (NO TRADE)
+        # =========================
         elif mode == "NORMAL":
-            log("⚠️ Market normal, skip dulu")
+            log("⚠️ Market normal, skip")
 
         time.sleep(5)
 
