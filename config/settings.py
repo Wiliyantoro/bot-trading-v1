@@ -34,4 +34,4 @@ TRAILING_STEP = 300     # 🔥 tidak terlalu rapat
 # ==============================
 # TRADING MODE
 # ==============================
-TRADING_MODE = "MANUAL"   # "AUTO" atau "MANUAL"
+TRADING_MODE = "AUTO"   # "AUTO" atau "MANUAL"
