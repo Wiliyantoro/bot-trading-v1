@@ -146,8 +146,8 @@ def run_bot():
             place_buy_limit(SYMBOL, buy_price)
             place_sell_limit(SYMBOL, sell_price)
 
-        else:
-            log("⚠️ Mode tidak jelas")
+        elif mode == "NORMAL":
+            log("⚠️ Market normal, skip dulu")
 
         time.sleep(5)
 
