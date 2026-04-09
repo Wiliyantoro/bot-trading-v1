@@ -14,9 +14,10 @@ def apply_trailing(position):
     point = symbol_info.point
     digits = symbol_info.digits
 
+    # 🔥 ANTI INVALID (WAJIB)
     stop_level = symbol_info.trade_stops_level * point
     spread = tick.ask - tick.bid
-    buffer = spread * 1.5  # 🔥 diperbesar biar aman
+    buffer = spread * 1.2
     min_distance = stop_level + buffer
 
     price_open = position.price_open
@@ -24,7 +25,7 @@ def apply_trailing(position):
     tp = position.tp
 
     new_sl = None
-    new_tp = None
+    new_tp = tp  # default ikut TP lama (tidak dihapus)
 
     # =========================
     # BUY
@@ -33,30 +34,36 @@ def apply_trailing(position):
         profit = tick.bid - price_open
         profit_points = profit / point
 
+        # belum cukup profit
         if profit_points < TRAILING_START:
             return
 
-        # 🔥 SL lebih dekat (lock cepat)
-        trailing_distance = profit * 0.0002  # 0.02%
-        new_sl = tick.bid - trailing_distance
+        # 🔥 dynamic trailing (tetap seperti kode lama)
+        dynamic_step = max(TRAILING_STEP, spread * 2)
 
-        # 🔥 TP lebih jauh (anti spike)
-        tp_distance = profit * 0.0008  # 0.08% (NAIKKAN)
-        new_tp = tick.bid + tp_distance
+        new_sl = tick.bid - (dynamic_step * point)
 
-        # safety
+        # 🔥 jaga jarak aman dari harga
         if (tick.bid - new_sl) < min_distance:
             new_sl = tick.bid - min_distance
 
-        if (new_tp - tick.bid) < min_distance:
-            new_tp = tick.bid + min_distance
-
-        # anti turun SL
+        # 🔥 jangan mundur
         if sl != 0.0 and new_sl <= sl:
             return
 
+        # 🔥 jangan terlalu dekat ke open
         if new_sl <= price_open:
             return
+
+        # =========================
+        # 🔥 TAMBAHAN: TP DINAMIS LEBAR
+        # =========================
+        if profit > 0:
+            tp_distance = profit * 0.0008  # 🔥 diperlebar
+            new_tp = tick.bid + tp_distance
+
+            if (new_tp - tick.bid) < min_distance:
+                new_tp = tick.bid + min_distance
 
     # =========================
     # SELL
@@ -68,17 +75,12 @@ def apply_trailing(position):
         if profit_points < TRAILING_START:
             return
 
-        trailing_distance = profit * 0.0002
-        new_sl = tick.ask + trailing_distance
+        dynamic_step = max(TRAILING_STEP, spread * 2)
 
-        tp_distance = profit * 0.0008  # 🔥 lebih lebar
-        new_tp = tick.ask - tp_distance
+        new_sl = tick.ask + (dynamic_step * point)
 
         if (new_sl - tick.ask) < min_distance:
             new_sl = tick.ask + min_distance
-
-        if (tick.ask - new_tp) < min_distance:
-            new_tp = tick.ask - min_distance
 
         if sl != 0.0 and new_sl >= sl:
             return
@@ -86,19 +88,37 @@ def apply_trailing(position):
         if new_sl >= price_open:
             return
 
+        # =========================
+        # 🔥 TAMBAHAN: TP DINAMIS
+        # =========================
+        if profit > 0:
+            tp_distance = profit * 0.0008
+            new_tp = tick.ask - tp_distance
+
+            if (tick.ask - new_tp) < min_distance:
+                new_tp = tick.ask - min_distance
+
     else:
         return
 
+    # =========================
+    # NORMALIZE
+    # =========================
     new_sl = normalize_price(new_sl, digits)
-    new_tp = normalize_price(new_tp, digits)
+
+    if new_tp != 0.0:
+        new_tp = normalize_price(new_tp, digits)
 
     # =========================
-    # ANTI SPAM
+    # 🔥 ANTI SPAM UPDATE
     # =========================
     if sl != 0.0 and abs(new_sl - sl) < (point * 0.5):
         if tp != 0.0 and abs(new_tp - tp) < (point * 0.5):
             return
 
+    # =========================
+    # EXECUTE
+    # =========================
     request = {
         "action": mt5.TRADE_ACTION_SLTP,
         "position": position.ticket,
@@ -108,8 +128,11 @@ def apply_trailing(position):
 
     result = mt5.order_send(request)
 
+    # =========================
+    # LOG
+    # =========================
     if result.retcode == mt5.TRADE_RETCODE_DONE:
-        log(f"🚀 Trail+TP Wide | SL: {new_sl:.3f} | TP: {new_tp:.3f}")
+        log(f"🚀 Trailing+TP Wide | SL: {new_sl:.3f} | TP: {new_tp:.3f}")
 
     elif result.retcode == mt5.TRADE_RETCODE_NO_CHANGES:
         pass
