@@ -14,7 +14,7 @@ from core.order_manager import (
 )
 from core.position_manager import (
     has_position,
-    get_position,
+    get_positions,   # 🔥 TAMBAHAN
     set_sl_tp,
     close_opposite_pending,
     is_sl_tp_set,
@@ -63,43 +63,63 @@ def run_bot():
         log(f"📊 Bid: {bid:.3f} | Ask: {ask:.3f} | Spread: {spread:.3f}")
 
         # =========================
-        # ADA POSISI (SELALU DI MANAGE)
+        # ADA POSISI (MULTI POSITION SUPPORT)
         # =========================
         if has_position(SYMBOL):
-            position = get_position(SYMBOL)
 
-            if position is None:
+            positions = get_positions(SYMBOL)
+
+            if not positions:
                 time.sleep(2)
                 continue
 
-            if is_manual_position(position):
-                log("🧠 MANUAL POSITION DETECTED")
-            else:
-                log("🤖 BOT POSITION DETECTED")
+            # 🔥 HANDLE POSISI BARU (sekali saja)
+            first_position = positions[0]
 
-            # posisi baru
-            if position.ticket != last_position_ticket:
-                log("🆕 Posisi baru")
+            if first_position.ticket != last_position_ticket:
+                log("🆕 Posisi baru terdeteksi")
                 time.sleep(1)
 
-                close_opposite_pending(SYMBOL, position.type)
+                close_opposite_pending(SYMBOL, first_position.type)
 
-                last_position_ticket = position.ticket
+                last_position_ticket = first_position.ticket
                 last_trade_time = time.time()
 
-            # SL
-            if not is_sl_tp_set(position):
-                set_sl_tp(position)
+            # =========================
+            # 🔥 LOOP SEMUA POSISI
+            # =========================
+            for position in positions:
 
-            # BE + Trailing
-            apply_break_even(position)
-            apply_trailing(position)
+                if position is None:
+                    continue
+
+                # 🔥 DETEKSI MANUAL / BOT
+                if is_manual_position(position):
+                    log(f"🧠 MANUAL POSITION | Ticket: {position.ticket}")
+                else:
+                    log(f"🤖 BOT POSITION | Ticket: {position.ticket}")
+
+                # =========================
+                # SET SL/TP
+                # =========================
+                if not is_sl_tp_set(position):
+                    set_sl_tp(position)
+
+                # =========================
+                # BREAK EVEN
+                # =========================
+                apply_break_even(position)
+
+                # =========================
+                # TRAILING + TP DINAMIS
+                # =========================
+                apply_trailing(position)
 
             time.sleep(2)
             continue
 
         # =========================
-        # MODE MANUAL → STOP DI SINI
+        # MODE MANUAL → STOP ENTRY
         # =========================
         if TRADING_MODE == "MANUAL":
             log("⏸️ MODE MANUAL → Bot tidak entry")
@@ -132,7 +152,7 @@ def run_bot():
             continue
 
         # =========================
-        # DETECT MODE
+        # DETECT MARKET MODE
         # =========================
         mode = get_market_mode(SYMBOL)
         log(f"📊 Market Mode: {mode}")
