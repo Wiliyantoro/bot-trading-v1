@@ -14,11 +14,12 @@ from core.order_manager import (
 )
 from core.position_manager import (
     has_position,
-    get_positions,   # 🔥 TAMBAHAN
+    get_positions,
     set_sl_tp,
     close_opposite_pending,
     is_sl_tp_set,
     is_manual_position,
+    apply_fast_cut_loss,  # 🔥 TAMBAHAN
 )
 from utils.logger import log
 from utils.price_formatter import normalize_price
@@ -63,7 +64,7 @@ def run_bot():
         log(f"📊 Bid: {bid:.3f} | Ask: {ask:.3f} | Spread: {spread:.3f}")
 
         # =========================
-        # ADA POSISI (MULTI POSITION SUPPORT)
+        # ADA POSISI (MULTI POSITION)
         # =========================
         if has_position(SYMBOL):
 
@@ -98,6 +99,11 @@ def run_bot():
                     log(f"🧠 MANUAL POSITION | Ticket: {position.ticket}")
                 else:
                     log(f"🤖 BOT POSITION | Ticket: {position.ticket}")
+
+                # =========================
+                # 🔥 FAST CUT LOSS (WAJIB DI ATAS)
+                # =========================
+                apply_fast_cut_loss(position)
 
                 # =========================
                 # SET SL/TP
