@@ -14,7 +14,7 @@ def apply_break_even(position):
     point = symbol_info.point
     digits = symbol_info.digits
 
-    # 🔥 tambahan anti invalid
+    # 🔥 ANTI INVALID (KODE KAMU - TETAP)
     stop_level = symbol_info.trade_stops_level * point
     spread = tick.ask - tick.bid
     buffer = spread * 1.2
@@ -24,22 +24,28 @@ def apply_break_even(position):
     sl = position.sl
 
     # =========================
+    # 🔥 SETTING BARU (PRICE BASED)
+    # =========================
+    BE_TRIGGER_PRICE = 0.5   # profit 0.5 langsung BE
+    BE_LOCK_PRICE = 0.1      # lock profit 0.1
+
+    # =========================
     # BUY
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
-        profit_points = (tick.bid - price_open) / point
+        profit = tick.bid - price_open
 
         # belum cukup profit
-        if profit_points < BE_TRIGGER:
+        if profit < BE_TRIGGER_PRICE:
             return
 
-        new_sl = price_open + (BE_OFFSET * point)
+        new_sl = price_open + BE_LOCK_PRICE
 
-        # 🔥 pastikan jarak aman dari harga sekarang
+        # 🔥 tetap jaga min distance (kode kamu)
         if (tick.bid - new_sl) < min_distance:
             new_sl = tick.bid - min_distance
 
-        # jangan turunin SL
+        # 🔥 jangan turunin SL
         if sl != 0.0 and sl >= new_sl:
             return
 
@@ -47,12 +53,12 @@ def apply_break_even(position):
     # SELL
     # =========================
     elif position.type == mt5.POSITION_TYPE_SELL:
-        profit_points = (price_open - tick.ask) / point
+        profit = price_open - tick.ask
 
-        if profit_points < BE_TRIGGER:
+        if profit < BE_TRIGGER_PRICE:
             return
 
-        new_sl = price_open - (BE_OFFSET * point)
+        new_sl = price_open - BE_LOCK_PRICE
 
         if (new_sl - tick.ask) < min_distance:
             new_sl = tick.ask + min_distance
@@ -63,6 +69,9 @@ def apply_break_even(position):
     else:
         return
 
+    # =========================
+    # NORMALIZE
+    # =========================
     new_sl = normalize_price(new_sl, digits)
 
     request = {
@@ -74,4 +83,11 @@ def apply_break_even(position):
 
     result = mt5.order_send(request)
 
-    log(f"🟢 BE aktif | SL -> {new_sl:.3f} | Retcode: {result.retcode}")
+    if result.retcode == mt5.TRADE_RETCODE_DONE:
+        log(f"🟢 BE CEPAT | SL -> {new_sl:.3f}")
+
+    elif result.retcode == mt5.TRADE_RETCODE_NO_CHANGES:
+        pass
+
+    else:
+        log(f"❌ BE error | Retcode: {result.retcode}")
