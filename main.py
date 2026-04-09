@@ -31,22 +31,6 @@ last_trade_time = 0
 COOLDOWN_SECONDS = 25
 
 
-def get_market_mode(symbol):
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, 20)
-
-    if rates is None or len(rates) < 20:
-        return "UNKNOWN"
-
-    highs = [r['high'] for r in rates]
-    lows = [r['low'] for r in rates]
-
-    range_size = max(highs) - min(lows)
-
-    if range_size < 1.5:
-        return "SIDEWAYS"
-    else:
-        return "VOLATILE"
-
 
 def run_bot():
     global last_trade_time, last_position_ticket
