@@ -29,65 +29,85 @@ def is_manual_position(position):
     return position.magic != MAGIC_NUMBER
 
 
-# =========================
-# 🔥 FAST CUT LOSS (BARU)
-# =========================
+
 def apply_fast_cut_loss(position):
+    import time
+    import MetaTrader5 as mt5
+
     symbol_info = mt5.symbol_info(position.symbol)
     tick = mt5.symbol_info_tick(position.symbol)
 
     if symbol_info is None or tick is None:
         return
 
-    point = symbol_info.point
     digits = symbol_info.digits
 
-    # ⏱️ umur posisi
+    # =========================
+    # ⏱️ UMUR POSISI
+    # =========================
     current_time = time.time()
-    position_time = position.time
-    age = current_time - position_time
-
-    # hanya aktif di awal posisi
-    if age < 5 or age > 15:
-        return
+    age = current_time - position.time
 
     price_open = position.price_open
     sl = position.sl
 
     # =========================
-    # BUY
+    # HITUNG LOSS
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         loss = tick.bid - price_open
-
-        if loss >= 0:
-            return
-
-        new_sl = tick.bid - 0.2  # 🔥 bisa tuning
-
-        # jangan turunin SL
-        if sl != 0.0 and new_sl <= sl:
-            return
-
-    # =========================
-    # SELL
-    # =========================
     elif position.type == mt5.POSITION_TYPE_SELL:
         loss = price_open - tick.ask
+    else:
+        return
 
-        if loss >= 0:
-            return
+    # hanya jika minus
+    if loss >= 0:
+        return
 
-        new_sl = tick.ask + 0.2
+    # =========================
+    # 🔥 STEP SL BERDASARKAN WAKTU
+    # =========================
+    new_sl = None
 
-        if sl != 0.0 and new_sl >= sl:
-            return
+    # ⏱️ 5–10 detik → SL = -1.00
+    if 5 <= age <= 10:
+        if position.type == mt5.POSITION_TYPE_BUY:
+            new_sl = price_open - 1.00
+        else:
+            new_sl = price_open + 1.00
+
+        log("⚡ FAST CUT LEVEL 1 (1.00)")
+
+    # ⏱️ 20–30 detik → SL = -0.50
+    elif 20 <= age <= 30:
+        if position.type == mt5.POSITION_TYPE_BUY:
+            new_sl = price_open - 0.50
+        else:
+            new_sl = price_open + 0.50
+
+        log("⚡ FAST CUT LEVEL 2 (0.50)")
 
     else:
         return
 
+    # =========================
+    # 🔥 ANTI TURUN SL
+    # =========================
+    if sl != 0.0:
+        if position.type == mt5.POSITION_TYPE_BUY and new_sl <= sl:
+            return
+        if position.type == mt5.POSITION_TYPE_SELL and new_sl >= sl:
+            return
+
+    # =========================
+    # NORMALIZE
+    # =========================
     new_sl = normalize_price(new_sl, digits)
 
+    # =========================
+    # EXECUTE
+    # =========================
     request = {
         "action": mt5.TRADE_ACTION_SLTP,
         "position": position.ticket,
@@ -97,8 +117,7 @@ def apply_fast_cut_loss(position):
 
     result = mt5.order_send(request)
 
-    log(f"⚡ FAST CUT LOSS | SL -> {new_sl:.3f} | Retcode: {result.retcode}")
-
+    log(f"⚡ TIME SL UPDATE | SL -> {new_sl:.3f} | Retcode: {result.retcode}")
 
 # =========================
 # SET SL / TP (FINAL FIXED)
