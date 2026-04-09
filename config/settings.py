@@ -6,25 +6,27 @@ SYMBOL = "XAUUSDm"
 
 LOT = 0.01
 
-MULTIPLIER = 1.0
+MULTIPLIER = 1.2   # 🔥 sedikit lebih lebar entry
 
-MAX_SPREAD = 0.5  # ✅ SEKARANG pakai harga, bukan points
+MAX_SPREAD = 0.5
 
 MAGIC_NUMBER = 121241
-
 SLIPPAGE = 10
-# ✅ NEW (SL TP FIXED)
-SL_POINTS = 800
-TP_POINTS = 1200
+
+# ==============================
+# SL TP (ANTI NOISE)
+# ==============================
+SL_POINTS = 1500   # 🔥 jauh (anti spike)
+TP_POINTS = 2500   # 🔥 RR lebih sehat
 
 # ==============================
 # BREAK EVEN
 # ==============================
-BE_TRIGGER = 300  # points
-BE_OFFSET = 20  # buffer biar gak ke-close cepat
+BE_TRIGGER = 800    # 🔥 tunggu profit dulu
+BE_OFFSET = 100     # 🔥 aman dari noise
 
 # ==============================
 # TRAILING
 # ==============================
-TRAILING_START = 400
-TRAILING_STEP = 100
+TRAILING_START = 1200   # 🔥 mulai setelah profit cukup
+TRAILING_STEP = 300     # 🔥 tidak terlalu rapat
