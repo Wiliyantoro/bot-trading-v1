@@ -4,6 +4,9 @@ from utils.logger import log
 from utils.price_formatter import normalize_price
 
 
+# =========================
+# POSITION HELPERS
+# =========================
 def get_positions(symbol):
     positions = mt5.positions_get(symbol=symbol)
     return positions if positions else []
@@ -18,6 +21,9 @@ def get_position(symbol):
     return positions[0] if positions else None
 
 
+# =========================
+# SET SL / TP (ANTI NOISE + ANTI REJECT)
+# =========================
 def set_sl_tp(position):
     symbol_info = mt5.symbol_info(position.symbol)
     tick = mt5.symbol_info_tick(position.symbol)
@@ -25,12 +31,17 @@ def set_sl_tp(position):
     if symbol_info is None or tick is None:
         return
 
-    # ❗ JANGAN overwrite kalau sudah ada SL/TP
+    # ❗ JANGAN overwrite kalau sudah ada
     if position.sl != 0.0 and position.tp != 0.0:
         return
 
     point = symbol_info.point
     stop_level = symbol_info.trade_stops_level * point
+
+    spread = tick.ask - tick.bid
+    buffer = spread * 1.5  # 🔥 penting biar gak kena invalid
+
+    min_distance = stop_level + buffer
 
     price_open = position.price_open
     ticket = position.ticket
@@ -45,12 +56,12 @@ def set_sl_tp(position):
         sl = price_open - (SL_POINTS * point)
         tp = price_open + (TP_POINTS * point)
 
-        # validasi minimal jarak
-        if (tick.bid - sl) < stop_level:
-            sl = tick.bid - stop_level
+        # 🔥 VALIDASI JARAK MINIMAL
+        if (tick.bid - sl) < min_distance:
+            sl = tick.bid - min_distance
 
-        if (tp - tick.bid) < stop_level:
-            tp = tick.bid + stop_level
+        if (tp - tick.bid) < min_distance:
+            tp = tick.bid + min_distance
 
     # =========================
     # SELL
@@ -59,11 +70,11 @@ def set_sl_tp(position):
         sl = price_open + (SL_POINTS * point)
         tp = price_open - (TP_POINTS * point)
 
-        if (sl - tick.ask) < stop_level:
-            sl = tick.ask + stop_level
+        if (sl - tick.ask) < min_distance:
+            sl = tick.ask + min_distance
 
-        if (tick.ask - tp) < stop_level:
-            tp = tick.ask - stop_level
+        if (tick.ask - tp) < min_distance:
+            tp = tick.ask - min_distance
 
     else:
         return
@@ -72,7 +83,7 @@ def set_sl_tp(position):
     if sl is None or tp is None:
         return
 
-    # ✅ NORMALIZE DI SINI (SETELAH HITUNG)
+    # ✅ NORMALIZE
     sl = normalize_price(sl, symbol_info.digits)
     tp = normalize_price(tp, symbol_info.digits)
 
@@ -84,13 +95,20 @@ def set_sl_tp(position):
     }
 
     result = mt5.order_send(request)
-    log(f"🎯 Set SL/TP | SL: {sl:.3f} | TP: {tp:.3f} | Result: {result.retcode}")
+
+    log(f"🎯 Set SL/TP | SL: {sl:.3f} | TP: {tp:.3f} | Retcode: {result.retcode}")
 
 
+# =========================
+# CEK SUDAH ADA SL TP
+# =========================
 def is_sl_tp_set(position):
     return position.sl != 0.0 and position.tp != 0.0
 
 
+# =========================
+# HAPUS PENDING LAWAN
+# =========================
 def close_opposite_pending(symbol, position_type):
     orders = mt5.orders_get(symbol=symbol)
 
@@ -98,31 +116,35 @@ def close_opposite_pending(symbol, position_type):
         return
 
     for order in orders:
-
         if order.symbol != symbol:
             continue
+
         # =========================
         # JIKA POSISI BUY
         # =========================
         if position_type == mt5.POSITION_TYPE_BUY:
 
-            # hapus semua order SELL
-            if order.type in [mt5.ORDER_TYPE_SELL_STOP, mt5.ORDER_TYPE_SELL_LIMIT]:
+            if order.type in [
+                mt5.ORDER_TYPE_SELL_STOP,
+                mt5.ORDER_TYPE_SELL_LIMIT,
+            ]:
                 result = mt5.order_send(
                     {"action": mt5.TRADE_ACTION_REMOVE, "order": order.ticket}
                 )
 
-                log(f"❌ Hapus SELL pending: {order.ticket} | Result: {result.retcode}")
+                log(f"❌ Hapus SELL pending: {order.ticket} | Retcode: {result.retcode}")
 
         # =========================
         # JIKA POSISI SELL
         # =========================
         elif position_type == mt5.POSITION_TYPE_SELL:
 
-            # hapus semua order BUY
-            if order.type in [mt5.ORDER_TYPE_BUY_STOP, mt5.ORDER_TYPE_BUY_LIMIT]:
+            if order.type in [
+                mt5.ORDER_TYPE_BUY_STOP,
+                mt5.ORDER_TYPE_BUY_LIMIT,
+            ]:
                 result = mt5.order_send(
                     {"action": mt5.TRADE_ACTION_REMOVE, "order": order.ticket}
                 )
 
-                log(f"❌ Hapus BUY pending: {order.ticket} | Result: {result.retcode}")
+                log(f"❌ Hapus BUY pending: {order.ticket} | Retcode: {result.retcode}")
