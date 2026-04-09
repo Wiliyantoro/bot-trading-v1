@@ -1,7 +1,14 @@
 import MetaTrader5 as mt5
+import time
 from utils.logger import log
 from utils.price_formatter import normalize_price
 from config.settings import *
+
+# =========================
+# 🔥 GLOBAL TRACKER TP
+# =========================
+last_tp_update = {}
+TP_BASE_INTERVAL = 1.0  # default
 
 
 def apply_trailing(position):
@@ -14,7 +21,6 @@ def apply_trailing(position):
     point = symbol_info.point
     digits = symbol_info.digits
 
-    # 🔥 ANTI INVALID (WAJIB)
     stop_level = symbol_info.trade_stops_level * point
     spread = tick.ask - tick.bid
     buffer = spread * 1.2
@@ -25,7 +31,10 @@ def apply_trailing(position):
     tp = position.tp
 
     new_sl = None
-    new_tp = tp  # default ikut TP lama
+    new_tp = tp
+
+    current_time = time.time()
+    ticket = position.ticket
 
     # =========================
     # BUY
@@ -37,33 +46,42 @@ def apply_trailing(position):
         if profit_points < TRAILING_START:
             return
 
-        # 🔥 dynamic trailing (ASLI KAMU)
+        # =========================
+        # 🔥 TRAILING SL (ASLI)
+        # =========================
         dynamic_step = max(TRAILING_STEP, spread * 2)
         new_sl = tick.bid - (dynamic_step * point)
 
-        # jaga jarak aman
         if (tick.bid - new_sl) < min_distance:
             new_sl = tick.bid - min_distance
 
-        # jangan mundur
         if sl != 0.0 and new_sl <= sl:
-            new_sl = sl  # 🔥 jangan return → biar TP tetap update
+            new_sl = sl
 
-        # jangan di bawah open
         if new_sl <= price_open:
             new_sl = sl if sl != 0.0 else new_sl
 
         # =========================
-        # 🔥 TP DINAMIS (LEBIH LEBAR & AGRESIF)
+        # 🔥 TP ADAPTIVE
         # =========================
         if profit > 0:
-            tp_distance = max(profit * 0.0015, spread * 5)
+
+            # 🔥 semakin besar profit → TP makin jauh
+            tp_multiplier = 0.0015
+
+            if profit_points > TRAILING_START * 2:
+                tp_multiplier = 0.0025  # profit besar → TP lebih jauh
+
+            if spread > 0.4:
+                tp_multiplier *= 1.5  # volatile → TP diperlebar
+
+            tp_distance = max(profit * tp_multiplier, spread * 5)
             new_tp = tick.bid + tp_distance
 
             if (new_tp - tick.bid) < min_distance:
                 new_tp = tick.bid + min_distance
 
-            # 🔥 TP tidak boleh turun
+            # TP tidak turun
             if tp != 0.0 and new_tp <= tp:
                 new_tp = tp
 
@@ -90,10 +108,19 @@ def apply_trailing(position):
             new_sl = sl if sl != 0.0 else new_sl
 
         # =========================
-        # 🔥 TP DINAMIS
+        # 🔥 TP ADAPTIVE
         # =========================
         if profit > 0:
-            tp_distance = max(profit * 0.0015, spread * 5)
+
+            tp_multiplier = 0.0015
+
+            if profit_points > TRAILING_START * 2:
+                tp_multiplier = 0.0025
+
+            if spread > 0.4:
+                tp_multiplier *= 1.5
+
+            tp_distance = max(profit * tp_multiplier, spread * 5)
             new_tp = tick.ask - tp_distance
 
             if (tick.ask - new_tp) < min_distance:
@@ -114,12 +141,33 @@ def apply_trailing(position):
         new_tp = normalize_price(new_tp, digits)
 
     # =========================
-    # 🔥 ANTI SPAM (FIX FINAL)
+    # 🔥 TP COOLDOWN ADAPTIVE
+    # =========================
+    last_time = last_tp_update.get(ticket, 0)
+
+    # 🔥 semakin profit besar → update lebih cepat
+    tp_interval = TP_BASE_INTERVAL
+
+    if profit_points > TRAILING_START * 2:
+        tp_interval = 0.5
+
+    if profit_points > TRAILING_START * 3:
+        tp_interval = 0.2
+
+    tp_changed = (tp == 0.0 or abs(new_tp - tp) > (point * 0.5))
+
+    if tp_changed:
+        if current_time - last_time < tp_interval:
+            new_tp = tp
+        else:
+            last_tp_update[ticket] = current_time
+
+    # =========================
+    # 🔥 ANTI SPAM FINAL
     # =========================
     sl_same = (sl != 0.0 and abs(new_sl - sl) < (point * 0.5))
     tp_same = (tp != 0.0 and abs(new_tp - tp) < (point * 0.5))
 
-    # hanya skip jika dua-duanya sama
     if sl_same and tp_same:
         return
 
@@ -135,11 +183,8 @@ def apply_trailing(position):
 
     result = mt5.order_send(request)
 
-    # =========================
-    # LOG
-    # =========================
     if result.retcode == mt5.TRADE_RETCODE_DONE:
-        log(f"🚀 Trail MAX | SL: {new_sl:.3f} | TP: {new_tp:.3f}")
+        log(f"🚀 Adaptive Trail | SL: {new_sl:.3f} | TP: {new_tp:.3f}")
 
     elif result.retcode == mt5.TRADE_RETCODE_NO_CHANGES:
         pass
