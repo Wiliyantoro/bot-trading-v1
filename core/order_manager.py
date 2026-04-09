@@ -6,6 +6,50 @@ import MetaTrader5 as mt5
 from config.settings import *
 from utils.logger import log
 
+def validate_price(symbol, price, order_type):
+    symbol_info = mt5.symbol_info(symbol)
+    tick = mt5.symbol_info_tick(symbol)
+
+    if symbol_info is None or tick is None:
+        return price
+
+    point = symbol_info.point
+    stop_level = symbol_info.trade_stops_level * point
+
+    spread = tick.ask - tick.bid
+    buffer = spread * 1.5
+
+    min_distance = stop_level + buffer
+
+    # =========================
+    # BUY STOP
+    # =========================
+    if order_type == mt5.ORDER_TYPE_BUY_STOP:
+        if (price - tick.ask) < min_distance:
+            price = tick.ask + min_distance
+
+    # =========================
+    # SELL STOP
+    # =========================
+    elif order_type == mt5.ORDER_TYPE_SELL_STOP:
+        if (tick.bid - price) < min_distance:
+            price = tick.bid - min_distance
+
+    # =========================
+    # BUY LIMIT
+    # =========================
+    elif order_type == mt5.ORDER_TYPE_BUY_LIMIT:
+        if (tick.bid - price) < min_distance:
+            price = tick.bid - min_distance
+
+    # =========================
+    # SELL LIMIT
+    # =========================
+    elif order_type == mt5.ORDER_TYPE_SELL_LIMIT:
+        if (price - tick.ask) < min_distance:
+            price = tick.ask + min_distance
+
+    return round(price, symbol_info.digits)
 
 def get_pending_orders(symbol):
     orders = mt5.orders_get(symbol=symbol)
