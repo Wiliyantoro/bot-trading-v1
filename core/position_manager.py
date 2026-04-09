@@ -104,12 +104,24 @@ def set_sl_tp(position):
         tp = normalize_price(tp, symbol_info.digits)
 
     # =========================
-    # 🔥 FIX: ANTI SPAM (NO CHANGES)
+    # 🔥 ANTI TURUN SL (SUPER PENTING)
+    # =========================
+    if position.type == mt5.POSITION_TYPE_BUY and position.sl != 0.0:
+        if sl <= position.sl:
+            log("⛔ SL tidak boleh turun (BUY), skip")
+            return
+
+    if position.type == mt5.POSITION_TYPE_SELL and position.sl != 0.0:
+        if sl >= position.sl:
+            log("⛔ SL tidak boleh naik (SELL), skip")
+            return
+
+    # =========================
+    # 🔥 ANTI SPAM (NO CHANGES)
     # =========================
     current_sl = position.sl if position.sl else 0.0
     current_tp = position.tp if position.tp else 0.0
 
-    # skip kalau tidak berubah
     if abs(current_sl - sl) < (point * 0.5):
         if tp == 0.0 or abs(current_tp - tp) < (point * 0.5):
             log("⚠️ SL/TP sama, skip update")
@@ -143,13 +155,12 @@ def set_sl_tp(position):
         log(f"❌ Gagal set SL/TP | Retcode: {result.retcode}")
 
 
-
+# =========================
+# CEK SUDAH ADA SL TP
+# =========================
 def is_sl_tp_set(position):
-    # untuk manual → cukup SL saja
     if is_manual_position(position):
         return position.sl != 0.0
-
-    # untuk bot → SL + TP
     return position.sl != 0.0 and position.tp != 0.0
 
 
