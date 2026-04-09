@@ -14,6 +14,12 @@ def apply_break_even(position):
     point = symbol_info.point
     digits = symbol_info.digits
 
+    # 🔥 tambahan anti invalid
+    stop_level = symbol_info.trade_stops_level * point
+    spread = tick.ask - tick.bid
+    buffer = spread * 1.2
+    min_distance = stop_level + buffer
+
     price_open = position.price_open
     sl = position.sl
 
@@ -23,13 +29,18 @@ def apply_break_even(position):
     if position.type == mt5.POSITION_TYPE_BUY:
         profit_points = (tick.bid - price_open) / point
 
+        # belum cukup profit
         if profit_points < BE_TRIGGER:
             return
 
         new_sl = price_open + (BE_OFFSET * point)
 
+        # 🔥 pastikan jarak aman dari harga sekarang
+        if (tick.bid - new_sl) < min_distance:
+            new_sl = tick.bid - min_distance
+
         # jangan turunin SL
-        if sl >= new_sl:
+        if sl != 0.0 and sl >= new_sl:
             return
 
     # =========================
@@ -43,7 +54,10 @@ def apply_break_even(position):
 
         new_sl = price_open - (BE_OFFSET * point)
 
-        if sl <= new_sl and sl != 0.0:
+        if (new_sl - tick.ask) < min_distance:
+            new_sl = tick.ask + min_distance
+
+        if sl != 0.0 and sl <= new_sl:
             return
 
     else:
@@ -59,4 +73,5 @@ def apply_break_even(position):
     }
 
     result = mt5.order_send(request)
-    log(f"🟢 BE aktif | SL -> {new_sl:.3f} | Result: {result.retcode}")
+
+    log(f"🟢 BE aktif | SL -> {new_sl:.3f} | Retcode: {result.retcode}")
