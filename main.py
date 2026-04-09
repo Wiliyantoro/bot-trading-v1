@@ -1,6 +1,6 @@
 import time
 import MetaTrader5 as mt5
-
+from strategy.market_mode import get_market_mode
 from config.settings import *
 from core.mt5_connector import connect, shutdown
 from core.market_data import get_tick
