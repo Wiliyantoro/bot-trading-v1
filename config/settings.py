@@ -35,3 +35,9 @@ TRAILING_STEP = 300     # 🔥 tidak terlalu rapat
 # TRADING MODE
 # ==============================
 TRADING_MODE = "AUTO"   # "AUTO" atau "MANUAL"
+
+# ==============================
+# FEATURE TOGGLE
+# ==============================
+ENABLE_DYNAMIC_SL = True     # FAST CUT LOSS / SL TIME BASED
+ENABLE_DYNAMIC_BE = True     # BE STEP + BE CEPAT
