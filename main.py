@@ -25,6 +25,7 @@ from utils.logger import log
 from utils.price_formatter import normalize_price
 from risk.breakeven import apply_break_even
 from risk.trailing import apply_trailing
+from risk.breakeven_basic import apply_basic_be
 
 # =========================
 # GLOBAL
@@ -101,20 +102,23 @@ def run_bot():
                     log(f"🤖 BOT POSITION | Ticket: {position.ticket}")
 
                 # =========================
-                # 🔥 FAST CUT LOSS (WAJIB DI ATAS)
-                # =========================
-                apply_fast_cut_loss(position)
+                # BASIC BE
+                # ==========================
+
+                if ENABLE_BASIC_BE:
+                    apply_basic_be(position)
+
+                if ENABLE_DYNAMIC_SL:
+                    apply_fast_cut_loss(position)
+
+                if ENABLE_DYNAMIC_BE:
+                    apply_break_even(position)
 
                 # =========================
                 # SET SL/TP
                 # =========================
                 if not is_sl_tp_set(position):
                     set_sl_tp(position)
-
-                # =========================
-                # BREAK EVEN
-                # =========================
-                apply_break_even(position)
 
                 # =========================
                 # TRAILING + TP DINAMIS
