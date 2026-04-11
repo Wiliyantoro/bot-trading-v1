@@ -1,4 +1,6 @@
-import MetaTrader5 as mt5
+﻿import MetaTrader5 as mt5
+
+from config.settings import BASIC_BE_LOCK, BASIC_BE_TRIGGER
 from utils.logger import log
 from utils.price_formatter import normalize_price
 
@@ -15,33 +17,24 @@ def apply_basic_be(position):
     price_open = position.price_open
     sl = position.sl
 
-    BE_TRIGGER = 0.5
-    BE_LOCK = 0.1
-
-    # =========================
-    # BUY
-    # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         profit = tick.bid - price_open
 
-        if profit < BE_TRIGGER:
+        if profit < BASIC_BE_TRIGGER:
             return
 
-        new_sl = price_open + BE_LOCK
+        new_sl = price_open + BASIC_BE_LOCK
 
         if sl != 0.0 and sl >= new_sl:
             return
 
-    # =========================
-    # SELL
-    # =========================
     elif position.type == mt5.POSITION_TYPE_SELL:
         profit = price_open - tick.ask
 
-        if profit < BE_TRIGGER:
+        if profit < BASIC_BE_TRIGGER:
             return
 
-        new_sl = price_open - BE_LOCK
+        new_sl = price_open - BASIC_BE_LOCK
 
         if sl != 0.0 and sl <= new_sl:
             return
@@ -58,6 +51,6 @@ def apply_basic_be(position):
         "tp": position.tp,
     }
 
-    result = mt5.order_send(request)
+    mt5.order_send(request)
 
-    log(f"🟢 BASIC BE | SL -> {new_sl:.3f}")
+    log(f"BASIC BE | SL -> {new_sl:.3f}")

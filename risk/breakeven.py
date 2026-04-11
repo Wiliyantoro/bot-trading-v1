@@ -1,8 +1,27 @@
+﻿import time
+
 import MetaTrader5 as mt5
-import time
+
+from config.settings import (
+    BE_BUFFER_MULTIPLIER,
+    BE_MIN_PROFIT,
+    BE_OFFSET,
+    BE_STEP_1_END,
+    BE_STEP_1_LOCK,
+    BE_STEP_1_START,
+    BE_STEP_2_END,
+    BE_STEP_2_LOCK,
+    BE_STEP_2_START,
+    BE_STEP_3_END,
+    BE_STEP_3_LOCK,
+    BE_STEP_3_START,
+    BE_STEP_4_END,
+    BE_STEP_4_LOCK,
+    BE_STEP_4_START,
+    BE_TRIGGER,
+)
 from utils.logger import log
 from utils.price_formatter import normalize_price
-from config.settings import *
 
 
 def apply_break_even(position):
@@ -15,22 +34,17 @@ def apply_break_even(position):
     point = symbol_info.point
     digits = symbol_info.digits
 
-    # 🔥 ANTI INVALID (TETAP)
     stop_level = symbol_info.trade_stops_level * point
     spread = tick.ask - tick.bid
-    buffer = spread * 1.2
+    buffer = spread * BE_BUFFER_MULTIPLIER
     min_distance = stop_level + buffer
 
     price_open = position.price_open
     sl = position.sl
 
-    # ⏱️ umur posisi
     current_time = time.time()
     age = current_time - position.time
 
-    # =========================
-    # HITUNG PROFIT
-    # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         profit = tick.bid - price_open
     elif position.type == mt5.POSITION_TYPE_SELL:
@@ -38,13 +52,9 @@ def apply_break_even(position):
     else:
         return
 
-    # =========================
-    # 🔥 PRIORITAS: BE CEPAT (0.5)
-    # =========================
-    if profit >= 0.5:
-
+    if profit >= BE_TRIGGER:
         if position.type == mt5.POSITION_TYPE_BUY:
-            new_sl = price_open + 0.1
+            new_sl = price_open + BE_OFFSET
             if (tick.bid - new_sl) < min_distance:
                 new_sl = tick.bid - min_distance
 
@@ -52,7 +62,7 @@ def apply_break_even(position):
                 return
 
         else:
-            new_sl = price_open - 0.1
+            new_sl = price_open - BE_OFFSET
             if (new_sl - tick.ask) < min_distance:
                 new_sl = tick.ask + min_distance
 
@@ -71,32 +81,26 @@ def apply_break_even(position):
         result = mt5.order_send(request)
 
         if result.retcode == mt5.TRADE_RETCODE_DONE:
-            log(f"🟢 BE CEPAT | SL -> {new_sl:.3f}")
+            log(f"BE CEPAT | SL -> {new_sl:.3f}")
 
-        return  # 🔥 stop di sini biar gak ke step BE
+        return
 
-    # =========================
-    # 🔥 BE BERTAHAP (TIME BASED)
-    # =========================
-    if profit < 0.1:
+    if profit < BE_MIN_PROFIT:
         return
 
     step_lock = None
 
-    if 10 <= age <= 20:
-        step_lock = 0.1
-    elif 20 <= age <= 30:
-        step_lock = 0.2
-    elif 30 <= age <= 40:
-        step_lock = 0.3
-    elif 40 <= age <= 50:
-        step_lock = 0.4
+    if BE_STEP_1_START <= age <= BE_STEP_1_END:
+        step_lock = BE_STEP_1_LOCK
+    elif BE_STEP_2_START <= age <= BE_STEP_2_END:
+        step_lock = BE_STEP_2_LOCK
+    elif BE_STEP_3_START <= age <= BE_STEP_3_END:
+        step_lock = BE_STEP_3_LOCK
+    elif BE_STEP_4_START <= age <= BE_STEP_4_END:
+        step_lock = BE_STEP_4_LOCK
     else:
         return
 
-    # =========================
-    # APPLY STEP BE
-    # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         new_sl = price_open + step_lock
 
@@ -127,10 +131,10 @@ def apply_break_even(position):
     result = mt5.order_send(request)
 
     if result.retcode == mt5.TRADE_RETCODE_DONE:
-        log(f"🟡 BE STEP | +{step_lock:.1f} | SL -> {new_sl:.3f}")
+        log(f"BE STEP | +{step_lock:.1f} | SL -> {new_sl:.3f}")
 
     elif result.retcode == mt5.TRADE_RETCODE_NO_CHANGES:
         pass
 
     else:
-        log(f"❌ BE error | Retcode: {result.retcode}")
+        log(f"BE error | Retcode: {result.retcode}")

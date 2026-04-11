@@ -1,10 +1,17 @@
-import MetaTrader5 as mt5
+﻿import MetaTrader5 as mt5
+
+from config.settings import (
+    CANDLE_BODY_MIN,
+    CANDLE_STRENGTH_THRESHOLD,
+    FAKE_BREAKOUT_LOOKBACK_BARS,
+    FAKE_BREAKOUT_TIMEFRAME,
+)
 
 
-def get_last_candle(symbol, timeframe=mt5.TIMEFRAME_M1):
-    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 2)
+def get_last_candle(symbol, timeframe=FAKE_BREAKOUT_TIMEFRAME):
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, FAKE_BREAKOUT_LOOKBACK_BARS)
 
-    if rates is None or len(rates) < 2:
+    if rates is None or len(rates) < FAKE_BREAKOUT_LOOKBACK_BARS:
         return None
 
     return rates[-1]
@@ -19,7 +26,11 @@ def is_strong_bullish(candle):
 
     strength = body / range_
 
-    return candle["close"] > candle["open"] and strength > 0.6 and body > 0.2
+    return (
+        candle["close"] > candle["open"]
+        and strength > CANDLE_STRENGTH_THRESHOLD
+        and body > CANDLE_BODY_MIN
+    )
 
 
 def is_strong_bearish(candle):
@@ -31,4 +42,8 @@ def is_strong_bearish(candle):
 
     strength = body / range_
 
-    return candle["close"] < candle["open"] and strength > 0.6 and body > 0.2
+    return (
+        candle["close"] < candle["open"]
+        and strength > CANDLE_STRENGTH_THRESHOLD
+        and body > CANDLE_BODY_MIN
+    )
