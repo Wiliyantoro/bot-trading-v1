@@ -7,30 +7,28 @@ from utils.price_formatter import normalize_price
 from utils.logger import log
 
 # =========================
-# CACHE (ANTI SPAM MODIFY)
+# CACHE STATE
 # =========================
-_last_update_price = {}
 _last_update_time = {}
+_last_stop_price = {}   # 🔥 LOCK PRICE
+_last_direction = {}    # BUY / SELL
 
-MIN_UPDATE_INTERVAL = 2  # detik
-MIN_PRICE_STEP = 5  # points (sesuaikan nanti)
+MIN_UPDATE_INTERVAL = 2
+MIN_PRICE_STEP = 5
 
+MIN_PROFIT_TO_ACTIVATE = 50  # bisa kamu setting
 
 def log_symbol(symbol, msg):
-    log(f"[SWITCH][{symbol}] {msg}")
+    log(f"[SWITCH-LOCK][{symbol}] {msg}")
 
 
 def should_update(symbol, new_price, point):
-    last_price = _last_update_price.get(symbol)
     last_time = _last_update_time.get(symbol, 0)
 
-    now = time.time()
-
-    # ⛔ jangan terlalu sering
-    if now - last_time < MIN_UPDATE_INTERVAL:
+    if time.time() - last_time < MIN_UPDATE_INTERVAL:
         return False
 
-    # ⛔ perubahan terlalu kecil
+    last_price = _last_stop_price.get(symbol)
     if last_price is not None:
         if abs(new_price - last_price) < (point * MIN_PRICE_STEP):
             return False
@@ -39,61 +37,89 @@ def should_update(symbol, new_price, point):
 
 
 def mark_updated(symbol, price):
-    _last_update_price[symbol] = price
     _last_update_time[symbol] = time.time()
-
-
-def calculate_follow_price(position, bid, ask, point, base_distance):
-    """
-    🔥 CORE LOGIC
-    Harga stop mengikuti harga sekarang (bukan dari entry lagi)
-    """
-
-    if position.type == mt5.POSITION_TYPE_BUY:
-        # follow sell stop
-        return bid - base_distance
-
-    elif position.type == mt5.POSITION_TYPE_SELL:
-        # follow buy stop
-        return ask + base_distance
-
-    return None
-
+    _last_stop_price[symbol] = price
 
 def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     if not positions:
         return
 
-    # ambil posisi terakhir (paling baru)
     position = max(positions, key=lambda pos: pos.time)
 
     point = symbol_info.point
     digits = symbol_info.digits
 
-    # 🔁 pastikan hanya 1 arah
-    close_opposite_positions(symbol, position.type)
+    # =========================
+    # HITUNG PROFIT
+    # =========================
+    if position.type == mt5.POSITION_TYPE_BUY:
+        profit = bid - position.price_open
+        direction = "BUY"
+    elif position.type == mt5.POSITION_TYPE_SELL:
+        profit = position.price_open - ask
+        direction = "SELL"
+    else:
+        return
 
-    # 🧹 hapus pending lawan
+    # 🔥 AKTIFKAN HANYA SAAT PROFIT
+    if profit < (point * MIN_PROFIT_TO_ACTIVATE):
+        return
+
+    # =========================
+    # HANDLE DIRECTION CHANGE (RESET LOCK)
+    # =========================
+    last_dir = _last_direction.get(symbol)
+    if last_dir != direction:
+        _last_stop_price[symbol] = None  # reset lock
+        _last_direction[symbol] = direction
+
+    # =========================
+    # CLOSE LAWAN
+    # =========================
+    close_opposite_positions(symbol, position.type)
     close_opposite_pending(symbol, position.type)
 
-    # 🎯 hitung harga follow
-    new_price = calculate_follow_price(position, bid, ask, point, base_distance)
+    # =========================
+    # HITUNG STOP BARU
+    # =========================
+    if position.type == mt5.POSITION_TYPE_BUY:
+        # SELL STOP (naik saja)
+        new_price = bid - base_distance
 
-    if new_price is None:
-        return
+        last_price = _last_stop_price.get(symbol)
+
+        if last_price is not None:
+            # ❌ tidak boleh turun
+            if new_price < last_price:
+                return
+
+    else:
+        # BUY STOP (turun saja)
+        new_price = ask + base_distance
+
+        last_price = _last_stop_price.get(symbol)
+
+        if last_price is not None:
+            # ❌ tidak boleh naik
+            if new_price > last_price:
+                return
 
     new_price = normalize_price(new_price, digits)
 
-    # ⛔ filter spam modify
+    # =========================
+    # ANTI SPAM
+    # =========================
     if not should_update(symbol, new_price, point):
         return
 
-    # 🚀 update pending
+    # =========================
+    # UPDATE PENDING
+    # =========================
     update_opposite_pending(symbol, new_price, config)
 
     mark_updated(symbol, new_price)
 
     if position.type == mt5.POSITION_TYPE_BUY:
-        log_symbol(symbol, f"FOLLOW SELL STOP → {new_price:.3f}")
+        log_symbol(symbol, f"LOCK SELL STOP ↑ {new_price:.3f}")
     else:
-        log_symbol(symbol, f"FOLLOW BUY STOP → {new_price:.3f}")
+        log_symbol(symbol, f"LOCK BUY STOP ↓ {new_price:.3f}")
