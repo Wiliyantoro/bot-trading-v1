@@ -145,7 +145,7 @@ def run_bot():
             )
 
             # =========================
-            # ADA POSISI (MULTI POSITION)
+            # ADA POSISI
             # =========================
             if has_position(symbol):
                 positions = get_positions(symbol)
@@ -157,6 +157,7 @@ def run_bot():
                 first_position = positions[0]
                 if STRATEGY_MODE == "SWITCH":
                     first_position = max(positions, key=lambda pos: pos.time)
+
                 symbol_last_ticket = last_position_ticket.get(symbol)
 
                 if first_position.ticket != symbol_last_ticket:
@@ -169,7 +170,9 @@ def run_bot():
                     last_position_ticket[symbol] = first_position.ticket
                     last_trade_time[symbol] = time.time()
 
-                # 🔥 SWITCH HARUS SELALU JALAN (SETIAP LOOP)
+                # =========================
+                # SWITCH ENGINE
+                # =========================
                 if STRATEGY_MODE == "SWITCH":
                     close_opposite_positions(symbol, first_position.type)
 
@@ -188,21 +191,9 @@ def run_bot():
                         SWITCH_DISTANCE,
                     )
 
-                    # if first_position.type == mt5.POSITION_TYPE_BUY:
-                    #     close_opposite_pending(symbol, mt5.POSITION_TYPE_SELL)
-                    #     sell_price = normalize_price(
-                    #         bid - distance_follow, symbol_info.digits
-                    #     )
-                    #     update_opposite_pending(symbol, sell_price, config)
-                    #     log_symbol(symbol, f"SWITCH FOLLOW SELL STOP: {sell_price:.3f}")
-                    # elif first_position.type == mt5.POSITION_TYPE_SELL:
-                    #     close_opposite_pending(symbol, mt5.POSITION_TYPE_BUY)
-                    #     buy_price = normalize_price(
-                    #         ask + distance_follow, symbol_info.digits
-                    #     )
-                    #     update_opposite_pending(symbol, buy_price, config)
-                    #     log_symbol(symbol, f"SWITCH FOLLOW BUY STOP: {buy_price:.3f}")
-
+                # =========================
+                # RISK MANAGEMENT
+                # =========================
                 for position in positions:
                     if position is None:
                         continue
@@ -214,42 +205,70 @@ def run_bot():
                     else:
                         log_symbol(symbol, f"BOT POSITION | Ticket: {position.ticket}")
 
-                    if ENABLE_BASIC_BE:
-                        apply_basic_be(position)
+                    # =========================
+                    # SWITCH MODE (NO SLTP)
+                    # =========================
+                    if STRATEGY_MODE == "SWITCH":
 
-                    if ENABLE_DYNAMIC_SL:
-                        apply_fast_cut_loss(position)
+                        # 🔥 hanya fast cut (opsional)
+                        if ENABLE_DYNAMIC_SL:
+                            apply_fast_cut_loss(position)
 
-                    if ENABLE_DYNAMIC_BE:
-                        apply_break_even(position)
+                    # =========================
+                    # NORMAL MODE (PAKAI SLTP)
+                    # =========================
+                    else:
 
-                    if not is_sl_tp_set(position):
-                        set_sl_tp(position, config)
+                        if ENABLE_BASIC_BE:
+                            apply_basic_be(position)
 
-                    apply_trailing(position, config)
+                        if ENABLE_DYNAMIC_SL:
+                            apply_fast_cut_loss(position)
+
+                        if ENABLE_DYNAMIC_BE:
+                            apply_break_even(position)
+
+                        if not is_sl_tp_set(position):
+                            set_sl_tp(position, config)
+
+                        apply_trailing(position, config)
 
                 time.sleep(SLEEP_AFTER_POSITION_CYCLE)
                 continue
 
             # =========================
-            # MODE MANUAL -> STOP ENTRY
+            # MODE MANUAL
             # =========================
             if TRADING_MODE == "MANUAL":
                 log_symbol(symbol, "MODE MANUAL -> Bot tidak entry")
                 time.sleep(SLEEP_MANUAL_MODE)
                 continue
 
+            # =========================
+            # SWITCH MODE (BELUM ADA POSISI)
+            # =========================
             if STRATEGY_MODE == "SWITCH":
-                buy_price = normalize_price(ask + SWITCH_DISTANCE, symbol_info.digits)
-                sell_price = normalize_price(bid - SWITCH_DISTANCE, symbol_info.digits)
 
-                update_opposite_pending(symbol, buy_price, config)
-                update_opposite_pending(symbol, sell_price, config)
+                # hanya pasang sekali
+                if not has_pending_orders(symbol):
 
-                log_symbol(
-                    symbol,
-                    f"SWITCH INIT | Buy Stop: {buy_price:.3f} | Sell Stop: {sell_price:.3f}",
-                )
+                    buy_price = normalize_price(
+                        ask + SWITCH_DISTANCE, symbol_info.digits
+                    )
+                    sell_price = normalize_price(
+                        bid - SWITCH_DISTANCE, symbol_info.digits
+                    )
+
+                    place_buy_stop(symbol, buy_price, config)
+                    place_sell_stop(symbol, sell_price, config)
+
+                    log_symbol(
+                        symbol,
+                        f"SWITCH INIT | Buy Stop: {buy_price:.3f} | Sell Stop: {sell_price:.3f}",
+                    )
+
+                else:
+                    log_symbol(symbol, "SWITCH WAITING TRIGGER...")
 
                 time.sleep(SLEEP_LOOP_END)
                 continue
@@ -321,7 +340,6 @@ def run_bot():
                 log_symbol(symbol, "STRATEGY_MODE tidak valid")
 
             time.sleep(SLEEP_LOOP_END)
-
 
 if __name__ == "__main__":
     try:

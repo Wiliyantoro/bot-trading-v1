@@ -17,6 +17,8 @@ MIN_UPDATE_INTERVAL = 2
 MIN_PRICE_STEP = 5
 
 MIN_PROFIT_TO_ACTIVATE = 50  # bisa kamu setting
+LOCK_TOLERANCE_MULTIPLIER = 15  # 🔥 kunci fleksibel
+
 
 def log_symbol(symbol, msg):
     log(f"[SWITCH-LOCK][{symbol}] {msg}")
@@ -40,6 +42,7 @@ def mark_updated(symbol, price):
     _last_update_time[symbol] = time.time()
     _last_stop_price[symbol] = price
 
+
 def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     if not positions:
         return
@@ -61,48 +64,49 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     else:
         return
 
-    # 🔥 AKTIFKAN HANYA SAAT PROFIT
-    if profit < (point * MIN_PROFIT_TO_ACTIVATE):
+    # =========================
+    # FILTER MIN PROFIT (ANTI FAKE FLIP 🔥)
+    # =========================
+    if profit < (point * 10):
         return
 
     # =========================
-    # HANDLE DIRECTION CHANGE (RESET LOCK)
+    # HANDLE DIRECTION CHANGE
     # =========================
     last_dir = _last_direction.get(symbol)
     if last_dir != direction:
-        _last_stop_price[symbol] = None  # reset lock
+        _last_stop_price[symbol] = None
         _last_direction[symbol] = direction
 
     # =========================
-    # CLOSE LAWAN
+    # 🔥 INSTANT SWITCH (WAJIB)
     # =========================
     close_opposite_positions(symbol, position.type)
-    close_opposite_pending(symbol, position.type)
 
     # =========================
     # HITUNG STOP BARU
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
-        # SELL STOP (naik saja)
         new_price = bid - base_distance
 
         last_price = _last_stop_price.get(symbol)
+        tolerance = point * LOCK_TOLERANCE_MULTIPLIER
 
         if last_price is not None:
-            # ❌ tidak boleh turun
             if new_price < last_price:
-                return
+                if (last_price - new_price) > tolerance:
+                    return
 
     else:
-        # BUY STOP (turun saja)
         new_price = ask + base_distance
 
         last_price = _last_stop_price.get(symbol)
+        tolerance = point * LOCK_TOLERANCE_MULTIPLIER
 
         if last_price is not None:
-            # ❌ tidak boleh naik
             if new_price > last_price:
-                return
+                if (new_price - last_price) > tolerance:
+                    return
 
     new_price = normalize_price(new_price, digits)
 
@@ -120,6 +124,6 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     mark_updated(symbol, new_price)
 
     if position.type == mt5.POSITION_TYPE_BUY:
-        log_symbol(symbol, f"LOCK SELL STOP ↑ {new_price:.3f}")
+        log_symbol(symbol, f"SWITCH SELL STOP ↑ {new_price:.3f}")
     else:
-        log_symbol(symbol, f"LOCK BUY STOP ↓ {new_price:.3f}")
+        log_symbol(symbol, f"SWITCH BUY STOP ↓ {new_price:.3f}")

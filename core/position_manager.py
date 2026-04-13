@@ -306,6 +306,10 @@ def close_opposite_positions(symbol, active_position_type):
             close_type = mt5.ORDER_TYPE_BUY
             close_price = tick.ask
 
+        symbol_info = mt5.symbol_info(symbol)
+
+        filling_mode = symbol_info.filling_mode
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
@@ -317,7 +321,7 @@ def close_opposite_positions(symbol, active_position_type):
             "magic": MAGIC_NUMBER,
             "comment": "Flip close",
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_RETURN,
+            "type_filling": filling_mode,  # 🔥 AUTO FIX
         }
 
         result = mt5.order_send(request)
