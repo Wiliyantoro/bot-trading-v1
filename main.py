@@ -174,7 +174,7 @@ def run_bot():
                 # SWITCH ENGINE
                 # =========================
                 if STRATEGY_MODE == "SWITCH":
-                    close_opposite_positions(symbol, first_position.type)
+                    
 
                     positions = get_positions(symbol)
                     if not positions:
