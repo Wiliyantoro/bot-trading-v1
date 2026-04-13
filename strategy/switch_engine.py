@@ -52,22 +52,28 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     point = symbol_info.point
     digits = symbol_info.digits
 
-    # =========================
-    # HITUNG PROFIT
-    # =========================
-    if position.type == mt5.POSITION_TYPE_BUY:
-        profit = bid - position.price_open
-        direction = "BUY"
-    elif position.type == mt5.POSITION_TYPE_SELL:
-        profit = position.price_open - ask
-        direction = "SELL"
-    else:
-        return
 
     # =========================
-    # FILTER MIN PROFIT (ANTI FAKE FLIP 🔥)
+    # HITUNG PROFIT GLOBAL 🔥
     # =========================
-    if profit < (point * 10):
+    buy_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_BUY]
+    sell_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_SELL]
+
+    buy_profit = sum(bid - p.price_open for p in buy_positions)
+    sell_profit = sum(p.price_open - ask for p in sell_positions)
+
+    # =========================
+    # SMART SWITCH 🔥
+    # =========================
+    if buy_profit > (point * 10):
+        direction = "BUY"
+        close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
+
+    elif sell_profit > (point * 10):
+        direction = "SELL"
+        close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
+
+    else:
         return
 
     # =========================
