@@ -44,6 +44,22 @@ def mark_updated(symbol, price):
 
 
 def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
+    # =========================
+    # LIMIT POSITION 🔥
+    # =========================
+    buy_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_BUY]
+    sell_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_SELL]
+
+    # ❌ stop kalau lebih dari 1 posisi per arah
+    if len(buy_positions) > 1 or len(sell_positions) > 1:
+        log_symbol(symbol, "MULTI POSITION DETECTED → STOP SWITCH")
+        return
+    MAX_TOTAL_POSITIONS = 2
+
+    if len(positions) >= MAX_TOTAL_POSITIONS:
+        # jangan buat pending baru lagi
+        return
+
     if not positions:
         return
 
