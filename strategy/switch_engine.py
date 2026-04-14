@@ -10,14 +10,11 @@ from utils.logger import log
 # CACHE STATE
 # =========================
 _last_update_time = {}
-_last_stop_price = {}  # 🔥 LOCK PRICE
-_last_direction = {}  # BUY / SELL
+_last_stop_price = {}
+_initial_stop_price = {}  # 🔥 SIMPAN SL AWAL
 
 MIN_UPDATE_INTERVAL = 2
 MIN_PRICE_STEP = 5
-
-MIN_PROFIT_TO_ACTIVATE = 50  # bisa kamu setting
-LOCK_TOLERANCE_MULTIPLIER = 15  # 🔥 kunci fleksibel
 
 
 def log_symbol(symbol, msg):
@@ -56,18 +53,18 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     position = positions[0]
 
     # =========================
-    # CLEAN MULTI POSISI (FIX BUG)
+    # CLEAN MULTI POSISI
     # =========================
     if len(positions) > 1:
         log_symbol(symbol, "FORCE CLEAN → KEEP 1 POSITION")
         latest = max(positions, key=lambda p: p.time)
         close_opposite_positions(symbol, latest.type)
 
-        # 🔥 RESET STATE
+        # RESET
         _last_stop_price[symbol] = None
         _last_update_time[symbol] = 0
+        _initial_stop_price[symbol] = None
 
-        # 🔥 UPDATE POSISI
         position = latest
         positions = [latest]
 
@@ -80,14 +77,15 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
             log_symbol(symbol, "SWITCH → CLOSE BUY")
             close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
 
-            # 🔥 RESET
             _last_stop_price[symbol] = None
             _last_update_time[symbol] = 0
+            _initial_stop_price[symbol] = None
 
-            # 🔥 PASANG SL BARU (SELL STOP)
             sl_price = normalize_price(bid - base_distance, digits)
+
             update_opposite_pending(symbol, sl_price, config)
             mark_updated(symbol, sl_price)
+            _initial_stop_price[symbol] = sl_price
 
             log_symbol(symbol, f"INIT SELL STOP (SL) ↓ {sl_price:.3f}")
             return
@@ -98,14 +96,15 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
             log_symbol(symbol, "SWITCH → CLOSE SELL")
             close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
 
-            # 🔥 RESET
             _last_stop_price[symbol] = None
             _last_update_time[symbol] = 0
+            _initial_stop_price[symbol] = None
 
-            # 🔥 PASANG SL BARU (BUY STOP)
             sl_price = normalize_price(ask + base_distance, digits)
+
             update_opposite_pending(symbol, sl_price, config)
             mark_updated(symbol, sl_price)
+            _initial_stop_price[symbol] = sl_price
 
             log_symbol(symbol, f"INIT BUY STOP (SL) ↑ {sl_price:.3f}")
             return
@@ -113,9 +112,7 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     # =========================
     # INITIAL SL (WAJIB ADA)
     # =========================
-    last_price = _last_stop_price.get(symbol)
-
-    if last_price is None:
+    if _last_stop_price.get(symbol) is None:
         if position.type == mt5.POSITION_TYPE_BUY:
             sl_price = normalize_price(bid - base_distance, digits)
         else:
@@ -123,6 +120,7 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
 
         update_opposite_pending(symbol, sl_price, config)
         mark_updated(symbol, sl_price)
+        _initial_stop_price[symbol] = sl_price
 
         log_symbol(symbol, f"INIT SL PASANG → {sl_price:.3f}")
         return
@@ -135,10 +133,23 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     else:
         profit = position.price_open - ask
 
-    MIN_PROFIT_ACTIVATE = point * 100
+    MIN_PROFIT_ACTIVATE = point * 100  # ± $1
 
+    # =========================
+    # HOLD SL SAAT BELUM PROFIT 🔥
+    # =========================
     if profit < MIN_PROFIT_ACTIVATE:
-        log_symbol(symbol, "WAIT PROFIT → NO TRAILING")
+        log_symbol(symbol, "WAIT PROFIT → HOLD SL")
+
+        initial_price = _initial_stop_price.get(symbol)
+
+        if initial_price is not None:
+            if not should_update(symbol, initial_price, point):
+                return
+
+            update_opposite_pending(symbol, initial_price, config)
+            mark_updated(symbol, initial_price)
+
         return
 
     # =========================
@@ -185,7 +196,7 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
         return
 
     # =========================
-    # UPDATE PENDING
+    # UPDATE TRAILING
     # =========================
     update_opposite_pending(symbol, new_price, config)
     mark_updated(symbol, new_price)
