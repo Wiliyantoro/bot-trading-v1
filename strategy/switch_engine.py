@@ -126,7 +126,7 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
         return
 
     # =========================
-    # PROFIT ACTIVATION
+    # PROFIT CHECK
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         profit = bid - position.price_open
@@ -136,26 +136,17 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     MIN_PROFIT_ACTIVATE = point * 100  # ± $1
 
     # =========================
-    # HOLD SL SAAT BELUM PROFIT 🔥
+    # HOLD SL (TIDAK BOLEH GERAK)
     # =========================
     if profit < MIN_PROFIT_ACTIVATE:
-        log_symbol(symbol, "WAIT PROFIT → HOLD SL")
-
-        initial_price = _initial_stop_price.get(symbol)
-
-        if initial_price is not None:
-            if not should_update(symbol, initial_price, point):
-                return
-
-            update_opposite_pending(symbol, initial_price, config)
-            mark_updated(symbol, initial_price)
-
+        log_symbol(symbol, "WAIT PROFIT → LOCK SL")
         return
 
     # =========================
-    # TRAILING LOGIC
+    # TRAILING LOGIC (STRICT)
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
+        # SELL STOP → hanya boleh naik
         new_price = bid - base_distance
 
         last_price = _last_stop_price.get(symbol)
@@ -167,6 +158,7 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
             return
 
     else:
+        # BUY STOP → hanya boleh turun
         new_price = ask + base_distance
 
         last_price = _last_stop_price.get(symbol)
