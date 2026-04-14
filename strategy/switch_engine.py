@@ -12,6 +12,7 @@ from utils.logger import log
 _last_update_time = {}
 _last_stop_price = {}
 _initial_stop_price = {}  # 🔥 SIMPAN SL AWAL
+_initial_range = {}  # 🔥 SIMPAN JARAK AWAL
 
 MIN_UPDATE_INTERVAL = 2
 MIN_PRICE_STEP = 5
@@ -64,68 +65,10 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
         _last_stop_price[symbol] = None
         _last_update_time[symbol] = 0
         _initial_stop_price[symbol] = None
+        _initial_range[symbol] = None
 
         position = latest
         positions = [latest]
-
-    # =========================
-    # DETEKSI SWITCH
-    # =========================
-    if position.type == mt5.POSITION_TYPE_BUY:
-        sell_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_SELL]
-
-        if sell_positions:
-            buy_profit = bid - position.price_open
-            sell_profit = sum(p.price_open - ask for p in sell_positions)
-
-            # 🔥 PILIH YANG LEBIH PROFIT
-            if sell_profit > buy_profit:
-                log_symbol(symbol, "KEEP SELL → CLOSE BUY (FAKE SWITCH)")
-                close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
-                return
-
-            else:
-                log_symbol(symbol, "VALID SWITCH → CLOSE SELL")
-                close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
-
-                _last_stop_price[symbol] = None
-                _last_update_time[symbol] = 0
-                _initial_stop_price[symbol] = None
-
-                sl_price = normalize_price(bid - base_distance, digits)
-                update_opposite_pending(symbol, sl_price, config)
-                mark_updated(symbol, sl_price)
-                _initial_stop_price[symbol] = sl_price
-
-                return
-
-    elif position.type == mt5.POSITION_TYPE_SELL:
-        buy_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_BUY]
-
-        if buy_positions:
-            sell_profit = position.price_open - ask
-            buy_profit = sum(bid - p.price_open for p in buy_positions)
-            MIN_SWITCH_PROFIT = point * 20
-            # 🔥 PILIH YANG LEBIH PROFIT
-            if buy_profit > (sell_profit + MIN_SWITCH_PROFIT):
-                log_symbol(symbol, "KEEP BUY → CLOSE SELL (FAKE SWITCH)")
-                close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
-                return
-
-            else:
-                log_symbol(symbol, "VALID SWITCH → CLOSE BUY")
-                close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
-
-                _last_stop_price[symbol] = None
-                _last_update_time[symbol] = 0
-                _initial_stop_price[symbol] = None
-
-                sl_price = normalize_price(ask + base_distance, digits)
-                update_opposite_pending(symbol, sl_price, config)
-                mark_updated(symbol, sl_price)
-                _initial_stop_price[symbol] = sl_price
-
-                return
 
     # =========================
     # INITIAL SL (WAJIB ADA)
@@ -133,46 +76,81 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     if _last_stop_price.get(symbol) is None:
         if position.type == mt5.POSITION_TYPE_BUY:
             sl_price = normalize_price(bid - base_distance, digits)
+            opposite_price = ask + base_distance
         else:
             sl_price = normalize_price(ask + base_distance, digits)
+            opposite_price = bid - base_distance
 
         update_opposite_pending(symbol, sl_price, config)
         mark_updated(symbol, sl_price)
         _initial_stop_price[symbol] = sl_price
 
+        # 🔥 SIMPAN RANGE AWAL
+        _initial_range[symbol] = abs(opposite_price - sl_price)
+
         log_symbol(symbol, f"INIT SL PASANG → {sl_price:.3f}")
         return
 
     # =========================
-    # PROFIT CHECK
+    # HITUNG PROFIT
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         profit = bid - position.price_open
     else:
         profit = position.price_open - ask
 
-    MIN_PROFIT_ACTIVATE = point * 100  # ± $1
-
-    # 🔥 HARD LOCK TRAILING (WAJIB)
-    if profit < MIN_PROFIT_ACTIVATE:
-        log_symbol(symbol, f"LOCK SL | PROFIT: {profit/point:.1f} pts")
-
-        # ❗ pastikan tidak ada update sama sekali
+    # =========================
+    # FASE 1: BELUM PROFIT
+    # =========================
+    if profit <= 0:
+        log_symbol(symbol, "NO PROFIT → HOLD SL")
         return
 
     # =========================
-    # HOLD SL (TIDAK BOLEH GERAK)
+    # FASE 2: PROFIT KECIL (LOCK 0.1$)
     # =========================
-    if profit < MIN_PROFIT_ACTIVATE:
-        log_symbol(symbol, "WAIT PROFIT → LOCK SL")
+    SMALL_PROFIT = point * 50   # ±0.5$
+    LOCK_PROFIT = point * 10    # ±0.1$
+
+    if profit < SMALL_PROFIT:
+        log_symbol(symbol, f"SMALL PROFIT → LOCK ({profit/point:.1f})")
+
+        if position.type == mt5.POSITION_TYPE_BUY:
+            new_price = position.price_open + LOCK_PROFIT
+        else:
+            new_price = position.price_open - LOCK_PROFIT
+
+        new_price = normalize_price(new_price, digits)
+
+        last_price = _last_stop_price.get(symbol)
+
+        # arah tidak boleh kebalik
+        if position.type == mt5.POSITION_TYPE_BUY:
+            if last_price is not None and new_price < last_price:
+                return
+        else:
+            if last_price is not None and new_price > last_price:
+                return
+
+        if not should_update(symbol, new_price, point):
+            return
+
+        update_opposite_pending(symbol, new_price, config)
+        mark_updated(symbol, new_price)
+
         return
 
     # =========================
-    # TRAILING LOGIC (STRICT)
+    # FASE 3: PROFIT BESAR (PAKAI RANGE)
     # =========================
+    range_distance = _initial_range.get(symbol, base_distance)
+
+    if range_distance is None or range_distance <= 0:
+        range_distance = base_distance
+
     if position.type == mt5.POSITION_TYPE_BUY:
         # SELL STOP → hanya boleh naik
-        new_price = bid - base_distance
+        new_price = bid - range_distance
 
         last_price = _last_stop_price.get(symbol)
         if last_price is not None and new_price < last_price:
@@ -184,7 +162,7 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
 
     else:
         # BUY STOP → hanya boleh turun
-        new_price = ask + base_distance
+        new_price = ask + range_distance
 
         last_price = _last_stop_price.get(symbol)
         if last_price is not None and new_price > last_price:
