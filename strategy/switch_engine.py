@@ -40,6 +40,26 @@ def mark_updated(symbol, price):
     _last_update_time[symbol] = time.time()
     _last_stop_price[symbol] = price
 
+def get_atr(symbol, timeframe=mt5.TIMEFRAME_M5, period=14):
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, period + 1)
+
+    if rates is None or len(rates) < period:
+        return 0
+
+    trs = []
+    for i in range(1, len(rates)):
+        high = rates[i]['high']
+        low = rates[i]['low']
+        prev_close = rates[i-1]['close']
+
+        tr = max(
+            high - low,
+            abs(high - prev_close),
+            abs(low - prev_close)
+        )
+        trs.append(tr)
+
+    return sum(trs) / len(trs)
 
 def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     if not positions:
@@ -47,6 +67,22 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
 
     point = symbol_info.point
     digits = symbol_info.digits
+
+    # 🔥 GLOBAL CONTROL
+    # =========================
+    # ATR BASED DISTANCE 🔥
+    # =========================
+    atr = get_atr(symbol)
+
+    # fallback kalau ATR gagal
+    if atr == 0:
+        atr = point * 150
+
+    MULTIPLIER = 1.5
+
+    MIN_LOCK_DISTANCE = atr * MULTIPLIER
+    #MIN_LOCK_DISTANCE = point * 75   # ≈ 1.5$ (jarak minimum SL dari harga)
+    TRAIL_STEP = point * 50           # step trailing biar halus
 
     # =========================
     # AMBIL POSISI AKTIF
@@ -156,7 +192,7 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
         if last_price is not None and new_price < last_price:
             return
 
-        MIN_LOCK_DISTANCE = point * 150
+        # 🔥 JAGA JARAK MINIMUM
         if (bid - new_price) < MIN_LOCK_DISTANCE:
             return
 
@@ -168,16 +204,15 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
         if last_price is not None and new_price > last_price:
             return
 
-        MIN_LOCK_DISTANCE = point * 150
+        # 🔥 JAGA JARAK MINIMUM
         if (new_price - ask) < MIN_LOCK_DISTANCE:
             return
 
     new_price = normalize_price(new_price, digits)
 
     # =========================
-    # TRAILING STEP
+    # TRAILING STEP (BIAR HALUS)
     # =========================
-    TRAIL_STEP = point * 50
     last_price = _last_stop_price.get(symbol)
 
     if last_price is not None:

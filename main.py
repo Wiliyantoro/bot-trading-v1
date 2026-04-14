@@ -1,6 +1,7 @@
 import time
 
 import MetaTrader5 as mt5
+from strategy.trend_detector import get_trend
 
 from config.settings import (
     COOLDOWN_SECONDS,
@@ -180,7 +181,24 @@ def run_bot():
                     if not positions:
                         time.sleep(SLEEP_EMPTY_POSITIONS)
                         continue
+                    # =========================
+                    # 🔥 FILTER TREND (TAMBAHAN)
+                    # =========================
+                    trend = get_trend(symbol)
 
+                    if trend == "SIDEWAYS":
+                        log_symbol(symbol, "SIDEWAYS → SKIP SWITCH")
+                        time.sleep(SLEEP_LOOP_END)
+                        continue
+
+                    elif trend == "UNKNOWN":
+                        log_symbol(symbol, "UNKNOWN → SKIP")
+                        time.sleep(SLEEP_LOOP_END)
+                        continue
+
+                    else:
+                        log_symbol(symbol, f"TREND {trend} → ALLOW SWITCH")
+                    
                     run_switch(
                         symbol,
                         positions,
