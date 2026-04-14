@@ -310,6 +310,14 @@ def close_opposite_positions(symbol, active_position_type):
 
         filling_mode = symbol_info.filling_mode
 
+        # 🔥 FIX WAJIB
+        if filling_mode == mt5.ORDER_FILLING_FOK:
+            filling_mode = mt5.ORDER_FILLING_IOC
+
+        # fallback terakhir
+        if filling_mode not in [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN]:
+            filling_mode = mt5.ORDER_FILLING_IOC
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
