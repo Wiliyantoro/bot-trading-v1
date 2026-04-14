@@ -73,41 +73,59 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         sell_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_SELL]
+
         if sell_positions:
-            log_symbol(symbol, "SWITCH → CLOSE BUY")
-            close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
+            buy_profit = bid - position.price_open
+            sell_profit = sum(p.price_open - ask for p in sell_positions)
 
-            _last_stop_price[symbol] = None
-            _last_update_time[symbol] = 0
-            _initial_stop_price[symbol] = None
+            # 🔥 PILIH YANG LEBIH PROFIT
+            if sell_profit > buy_profit:
+                log_symbol(symbol, "KEEP SELL → CLOSE BUY (FAKE SWITCH)")
+                close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
+                return
 
-            sl_price = normalize_price(bid - base_distance, digits)
+            else:
+                log_symbol(symbol, "VALID SWITCH → CLOSE SELL")
+                close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
 
-            update_opposite_pending(symbol, sl_price, config)
-            mark_updated(symbol, sl_price)
-            _initial_stop_price[symbol] = sl_price
+                _last_stop_price[symbol] = None
+                _last_update_time[symbol] = 0
+                _initial_stop_price[symbol] = None
 
-            log_symbol(symbol, f"INIT SELL STOP (SL) ↓ {sl_price:.3f}")
-            return
+                sl_price = normalize_price(bid - base_distance, digits)
+                update_opposite_pending(symbol, sl_price, config)
+                mark_updated(symbol, sl_price)
+                _initial_stop_price[symbol] = sl_price
+
+                return
 
     elif position.type == mt5.POSITION_TYPE_SELL:
         buy_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_BUY]
+
         if buy_positions:
-            log_symbol(symbol, "SWITCH → CLOSE SELL")
-            close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
+            sell_profit = position.price_open - ask
+            buy_profit = sum(bid - p.price_open for p in buy_positions)
+            MIN_SWITCH_PROFIT = point * 20
+            # 🔥 PILIH YANG LEBIH PROFIT
+            if buy_profit > (sell_profit + MIN_SWITCH_PROFIT):
+                log_symbol(symbol, "KEEP BUY → CLOSE SELL (FAKE SWITCH)")
+                close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
+                return
 
-            _last_stop_price[symbol] = None
-            _last_update_time[symbol] = 0
-            _initial_stop_price[symbol] = None
+            else:
+                log_symbol(symbol, "VALID SWITCH → CLOSE BUY")
+                close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
 
-            sl_price = normalize_price(ask + base_distance, digits)
+                _last_stop_price[symbol] = None
+                _last_update_time[symbol] = 0
+                _initial_stop_price[symbol] = None
 
-            update_opposite_pending(symbol, sl_price, config)
-            mark_updated(symbol, sl_price)
-            _initial_stop_price[symbol] = sl_price
+                sl_price = normalize_price(ask + base_distance, digits)
+                update_opposite_pending(symbol, sl_price, config)
+                mark_updated(symbol, sl_price)
+                _initial_stop_price[symbol] = sl_price
 
-            log_symbol(symbol, f"INIT BUY STOP (SL) ↑ {sl_price:.3f}")
-            return
+                return
 
     # =========================
     # INITIAL SL (WAJIB ADA)
