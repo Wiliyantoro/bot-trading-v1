@@ -51,35 +51,41 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     digits = symbol_info.digits
 
     # =========================
-    # AMBIL POSISI AKTIF (HANYA 1)
+    # AMBIL POSISI AKTIF
     # =========================
     position = positions[0]
 
     # =========================
-    # CLEAN JIKA ADA LEBIH DARI 1 POSISI
+    # CLEAN MULTI POSISI (FIX BUG)
     # =========================
     if len(positions) > 1:
         log_symbol(symbol, "FORCE CLEAN → KEEP 1 POSITION")
         latest = max(positions, key=lambda p: p.time)
         close_opposite_positions(symbol, latest.type)
-        return
+
+        # 🔥 RESET STATE
+        _last_stop_price[symbol] = None
+        _last_update_time[symbol] = 0
+
+        # 🔥 UPDATE POSISI
+        position = latest
+        positions = [latest]
 
     # =========================
-    # DETEKSI SWITCH (KENA PENDING)
+    # DETEKSI SWITCH
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         sell_positions = [p for p in positions if p.type == mt5.POSITION_TYPE_SELL]
         if sell_positions:
             log_symbol(symbol, "SWITCH → CLOSE BUY")
             close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
-            # 🔥 RESET STATE
+
+            # 🔥 RESET
             _last_stop_price[symbol] = None
             _last_update_time[symbol] = 0
 
             # 🔥 PASANG SL BARU (SELL STOP)
             sl_price = normalize_price(bid - base_distance, digits)
-            if not should_update(symbol, sl_price, point):
-                return
             update_opposite_pending(symbol, sl_price, config)
             mark_updated(symbol, sl_price)
 
@@ -91,14 +97,13 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
         if buy_positions:
             log_symbol(symbol, "SWITCH → CLOSE SELL")
             close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
-            # 🔥 RESET STATE
+
+            # 🔥 RESET
             _last_stop_price[symbol] = None
             _last_update_time[symbol] = 0
 
             # 🔥 PASANG SL BARU (BUY STOP)
             sl_price = normalize_price(ask + base_distance, digits)
-            if not should_update(symbol, sl_price, point):
-                return
             update_opposite_pending(symbol, sl_price, config)
             mark_updated(symbol, sl_price)
 
@@ -106,12 +111,11 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
             return
 
     # =========================
-    # INITIAL SL (WAJIB ADA) 🔥
+    # INITIAL SL (WAJIB ADA)
     # =========================
     last_price = _last_stop_price.get(symbol)
 
     if last_price is None:
-        # belum pernah pasang SL → WAJIB pasang
         if position.type == mt5.POSITION_TYPE_BUY:
             sl_price = normalize_price(bid - base_distance, digits)
         else:
@@ -122,51 +126,42 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
 
         log_symbol(symbol, f"INIT SL PASANG → {sl_price:.3f}")
         return
+
     # =========================
-    # PROFIT ACTIVATION (ANTI NOISE) 🔥
+    # PROFIT ACTIVATION
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
         profit = bid - position.price_open
     else:
         profit = position.price_open - ask
 
-    MIN_PROFIT_ACTIVATE = point * 100  # ≈ $1 (XAU)
+    MIN_PROFIT_ACTIVATE = point * 100
 
     if profit < MIN_PROFIT_ACTIVATE:
         log_symbol(symbol, "WAIT PROFIT → NO TRAILING")
         return
 
     # =========================
-    # TRAILING PENDING (STRICT)
+    # TRAILING LOGIC
     # =========================
     if position.type == mt5.POSITION_TYPE_BUY:
-        # SELL STOP (naik saja)
         new_price = bid - base_distance
 
         last_price = _last_stop_price.get(symbol)
+        if last_price is not None and new_price < last_price:
+            return
 
-        if last_price is not None:
-            # ❌ tidak boleh turun
-            if new_price < last_price:
-                return
-
-        # ❌ jangan terlalu dekat harga (biar profit maksimal)
         MIN_LOCK_DISTANCE = point * 150
         if (bid - new_price) < MIN_LOCK_DISTANCE:
             return
 
     else:
-        # BUY STOP (turun saja)
         new_price = ask + base_distance
 
         last_price = _last_stop_price.get(symbol)
+        if last_price is not None and new_price > last_price:
+            return
 
-        if last_price is not None:
-            # ❌ tidak boleh naik
-            if new_price > last_price:
-                return
-
-        # ❌ jangan terlalu dekat harga
         MIN_LOCK_DISTANCE = point * 150
         if (new_price - ask) < MIN_LOCK_DISTANCE:
             return
@@ -174,7 +169,7 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     new_price = normalize_price(new_price, digits)
 
     # =========================
-    # TRAILING STEP (BIAR HALUS)
+    # TRAILING STEP
     # =========================
     TRAIL_STEP = point * 50
     last_price = _last_stop_price.get(symbol)
@@ -193,7 +188,6 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
     # UPDATE PENDING
     # =========================
     update_opposite_pending(symbol, new_price, config)
-
     mark_updated(symbol, new_price)
 
     if position.type == mt5.POSITION_TYPE_BUY:
