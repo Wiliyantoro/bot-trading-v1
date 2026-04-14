@@ -10,8 +10,8 @@ from utils.logger import log
 # CACHE STATE
 # =========================
 _last_update_time = {}
-_last_stop_price = {}   # 🔥 LOCK PRICE
-_last_direction = {}    # BUY / SELL
+_last_stop_price = {}  # 🔥 LOCK PRICE
+_last_direction = {}  # BUY / SELL
 
 MIN_UPDATE_INTERVAL = 2
 MIN_PRICE_STEP = 5
@@ -72,6 +72,9 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
         if sell_positions:
             log_symbol(symbol, "SWITCH → CLOSE BUY")
             close_opposite_positions(symbol, mt5.POSITION_TYPE_SELL)
+            # 🔥 RESET STATE
+            _last_stop_price[symbol] = None
+            _last_update_time[symbol] = 0
 
             # 🔥 PASANG SL BARU (SELL STOP)
             sl_price = normalize_price(bid - base_distance, digits)
@@ -88,6 +91,9 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
         if buy_positions:
             log_symbol(symbol, "SWITCH → CLOSE SELL")
             close_opposite_positions(symbol, mt5.POSITION_TYPE_BUY)
+            # 🔥 RESET STATE
+            _last_stop_price[symbol] = None
+            _last_update_time[symbol] = 0
 
             # 🔥 PASANG SL BARU (BUY STOP)
             sl_price = normalize_price(ask + base_distance, digits)
