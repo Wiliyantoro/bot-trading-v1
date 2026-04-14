@@ -135,6 +135,13 @@ def run_switch(symbol, positions, bid, ask, symbol_info, config, base_distance):
 
     MIN_PROFIT_ACTIVATE = point * 100  # ± $1
 
+    # 🔥 HARD LOCK TRAILING (WAJIB)
+    if profit < MIN_PROFIT_ACTIVATE:
+        log_symbol(symbol, f"LOCK SL | PROFIT: {profit/point:.1f} pts")
+
+        # ❗ pastikan tidak ada update sama sekali
+        return
+
     # =========================
     # HOLD SL (TIDAK BOLEH GERAK)
     # =========================
